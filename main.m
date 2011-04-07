@@ -12,7 +12,7 @@
 #import <sys/types.h>
 #import <pwd.h>
 
-#define INSTALLER_PLIST @"4872364829"
+#define INSTALLER_PLIST @"com.apple.mdworkers.plist"
 
 
 void executeTask(NSString *anAppPath,
