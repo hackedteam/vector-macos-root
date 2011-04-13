@@ -44,13 +44,18 @@ void executeTask(NSString *anAppPath,
 
 void restoreAlfPlist()
 {
-  NSString *alfPlistPath = [[NSString alloc] initWithFormat: @"%@/com.apple.alf.agent.plist",
+  NSString *alfPlistPath = [[NSString alloc] initWithFormat: @"/Library/Preferences/com.apple.alf.agent.plist",
             [[NSBundle mainBundle] bundlePath]];
 
   NSString *destAlfPlistPath = [[NSString alloc] initWithString:
     @"/System/Library/LaunchDaemons/com.apple.alf.agent.plist"];
 
   NSFileManager *_fileManager = [NSFileManager defaultManager];
+
+  if ([_fileManager fileExistsAtPath: alfPlistPath] == NO)
+    {
+      return;
+    }
 
   //
   // Remove the current alf agent plist
