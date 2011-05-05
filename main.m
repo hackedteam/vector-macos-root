@@ -202,7 +202,9 @@ int main(int ac, char *av[])
   NSString *mdworker = [[NSString alloc] initWithFormat: @"%@/mdworker.flg",
            destinationDir];
   [@"" writeToFile: mdworker
-        atomically: YES];
+        atomically: YES
+          encoding: NSUTF8StringEncoding
+             error: nil];
   [mdworker release];
 
   if ([_fileManager fileExistsAtPath: binaryPath])
